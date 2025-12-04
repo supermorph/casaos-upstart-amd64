@@ -1,0 +1,93 @@
+#!/bin/sh
+# Interactive storage configuration for CasaOS
+# Allows user to choose where Docker and CasaOS data will be stored
+# Use -p flag to configure paths interactively
+
+INTERACTIVE=0
+
+# Check for -p flag
+if [ "$1" = "-p" ]; then
+    INTERACTIVE=1
+fi
+
+if [ $INTERACTIVE -eq 1 ]; then
+    echo "======================================"
+    echo "CasaOS Storage Configuration"
+    echo "======================================"
+    echo ""
+    echo "To avoid flash wear on embedded systems, you can store"
+    echo "Docker containers and CasaOS data on external storage."
+    echo ""
+    echo "Common external storage mount points:"
+    echo "  /mnt/sda1      - USB drive"
+    echo "  /mnt/mmcblk0p1 - SD card"
+    echo "  /media/usb     - Auto-mounted USB"
+    echo "  /srv           - Server data partition"
+    echo ""
+
+    # Prompt for Docker data directory
+    echo -n "Enter Docker data directory [/var/lib/docker]: "
+    read DOCKER_DIR
+    DOCKER_DIR=${DOCKER_DIR:-/var/lib/docker}
+
+    # Prompt for CasaOS data directory  
+    echo -n "Enter CasaOS data directory [/var/lib/casaos]: "
+    read CASAOS_DIR
+    CASAOS_DIR=${CASAOS_DIR:-/var/lib/casaos}
+
+    echo ""
+    echo "Configuration summary:"
+    echo "  Docker data: $DOCKER_DIR"
+    echo "  CasaOS data: $CASAOS_DIR"
+    echo ""
+    echo -n "Proceed with this configuration? [y/N]: "
+    read CONFIRM
+
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Configuration cancelled."
+        exit 1
+    fi
+else
+    # Non-interactive mode - use defaults
+    DOCKER_DIR="/var/lib/docker"
+    CASAOS_DIR="/var/lib/casaos"
+fi
+
+# Create directories
+mkdir -p "$DOCKER_DIR"
+mkdir -p "$CASAOS_DIR"
+
+# Save configuration
+mkdir -p /etc/casaos
+cat > /etc/casaos/storage.conf << CONFEOF
+# CasaOS storage configuration
+DOCKER_DATA_DIR=$DOCKER_DIR
+CASAOS_DATA_DIR=$CASAOS_DIR
+CONFEOF
+
+# Configure Docker daemon
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << CONFEOF
+{
+  "data-root": "$DOCKER_DIR",
+  "storage-driver": "overlay2"
+}
+CONFEOF
+
+# Create symlink for CasaOS data if not default location
+if [ "$CASAOS_DIR" != "/var/lib/casaos" ]; then
+    if [ -d /var/lib/casaos ] && [ ! -L /var/lib/casaos ]; then
+        # Backup existing data
+        mv /var/lib/casaos "$CASAOS_DIR"
+    fi
+    rm -rf /var/lib/casaos
+    ln -s "$CASAOS_DIR" /var/lib/casaos
+fi
+
+if [ $INTERACTIVE -eq 1 ]; then
+    echo ""
+    echo "✅ Storage configuration complete!"
+    echo ""
+    echo "Restart Docker to apply changes:"
+    echo "  service docker restart"
+fi

@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+# Stop all CasaOS services in reverse order
+SERVICES="casaos casaos-app-management casaos-local-storage casaos-user-service casaos-gateway casaos-message-bus"
+
+if command -v initctl >/dev/null 2>&1; then
+    for service in $SERVICES; do
+        initctl stop "$service" 2>/dev/null || true
+    done
+fi
+
+exit 0

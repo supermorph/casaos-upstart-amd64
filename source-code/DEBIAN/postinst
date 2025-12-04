@@ -1,0 +1,36 @@
+#!/bin/bash
+set -e
+
+mkdir -p /var/run/casaos
+
+# Start services (Upstart automatically handles dependencies based on 'start on' directives)
+echo "Starting CasaOS services with Upstart..."
+
+# Just start the message-bus, others will cascade automatically
+if command -v initctl >/dev/null 2>&1; then
+    # Reload Upstart configuration
+    initctl reload-configuration || true
+    
+    # Start the first service - dependencies will auto-start
+    initctl start casaos-message-bus || true
+    sleep 2
+    initctl start casaos-gateway || true
+    sleep 2
+    initctl start casaos-user-service || true
+    sleep 2
+    initctl start casaos-local-storage || true
+    sleep 2
+    initctl start casaos-app-management || true
+    sleep 2
+    initctl start casaos || true
+fi
+
+echo ""
+echo "CasaOS Upstart installation complete!"
+echo "Services should now be running and will auto-start on boot."
+echo "Access the web interface at http://localhost"
+echo ""
+echo "Manage services with: initctl start|stop|restart|status <service>"
+echo "Example: initctl status casaos"
+
+exit 0

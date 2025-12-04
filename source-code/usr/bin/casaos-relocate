@@ -1,0 +1,153 @@
+#!/bin/sh
+# CasaOS Installation Relocator
+# Moves entire CasaOS installation to external storage with symlinks
+
+INTERACTIVE=0
+
+# Check for -p flag
+if [ "$1" = "-p" ]; then
+    INTERACTIVE=1
+fi
+
+if [ $INTERACTIVE -eq 1 ]; then
+    echo "======================================"
+    echo "CasaOS Installation Relocator"
+    echo "======================================"
+    echo ""
+    echo "This will move the entire CasaOS installation to external storage"
+    echo "to avoid flash wear. The original locations will become symlinks."
+    echo ""
+    echo "Example: If you specify /mnt/sda1/casaos, the structure will be:"
+    echo "  /mnt/sda1/casaos/usr/bin/         (binaries)"
+    echo "  /mnt/sda1/casaos/var/lib/casaos/  (data)"
+    echo "  /mnt/sda1/casaos/var/lib/docker/  (containers)"
+    echo "  /mnt/sda1/casaos/etc/casaos/      (config)"
+    echo ""
+    echo "Common mount points:"
+    echo "  /mnt/sda1      - USB drive"
+    echo "  /mnt/mmcblk0p1 - SD card"
+    echo "  /media/usb     - Auto-mounted USB"
+    echo ""
+    
+    echo -n "Enter base directory for CasaOS installation: "
+    read BASE_DIR
+    
+    if [ -z "$BASE_DIR" ]; then
+        echo "Error: Base directory cannot be empty"
+        exit 1
+    fi
+    
+    # Remove trailing slash
+    BASE_DIR=$(echo "$BASE_DIR" | sed 's:/*$::')
+    
+    echo ""
+    echo "CasaOS will be moved to: $BASE_DIR"
+    echo ""
+    echo "The following will be relocated:"
+    echo "  /usr/bin/casaos*           → $BASE_DIR/usr/bin/"
+    echo "  /var/lib/casaos            → $BASE_DIR/var/lib/casaos"
+    echo "  /var/lib/docker            → $BASE_DIR/var/lib/docker"
+    echo "  /etc/casaos                → $BASE_DIR/etc/casaos"
+    echo ""
+    echo -n "Proceed? [y/N]: "
+    read CONFIRM
+    
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Relocation cancelled."
+        exit 1
+    fi
+else
+    # Non-interactive: do nothing, keep defaults
+    exit 0
+fi
+
+echo ""
+echo "Stopping CasaOS services..."
+service casaos stop 2>/dev/null
+service casaos-app-management stop 2>/dev/null
+service casaos-local-storage stop 2>/dev/null
+service casaos-user-service stop 2>/dev/null
+service casaos-gateway stop 2>/dev/null
+service casaos-message-bus stop 2>/dev/null
+service docker stop 2>/dev/null
+
+echo "Creating directory structure..."
+mkdir -p "$BASE_DIR/usr/bin"
+mkdir -p "$BASE_DIR/var/lib"
+mkdir -p "$BASE_DIR/etc"
+
+# Move binaries
+echo "Relocating CasaOS binaries..."
+if [ -d /usr/bin ]; then
+    for bin in casaos casaos-gateway casaos-message-bus casaos-user-service \
+               casaos-local-storage casaos-app-management casaos-setup-storage; do
+        if [ -f "/usr/bin/$bin" ] && [ ! -L "/usr/bin/$bin" ]; then
+            mv "/usr/bin/$bin" "$BASE_DIR/usr/bin/"
+            ln -s "$BASE_DIR/usr/bin/$bin" "/usr/bin/$bin"
+        fi
+    done
+fi
+
+# Move CasaOS data
+echo "Relocating CasaOS data..."
+if [ -d /var/lib/casaos ] && [ ! -L /var/lib/casaos ]; then
+    mv /var/lib/casaos "$BASE_DIR/var/lib/"
+    ln -s "$BASE_DIR/var/lib/casaos" /var/lib/casaos
+elif [ ! -e /var/lib/casaos ]; then
+    mkdir -p "$BASE_DIR/var/lib/casaos"
+    ln -s "$BASE_DIR/var/lib/casaos" /var/lib/casaos
+fi
+
+# Move Docker data
+echo "Relocating Docker data..."
+if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
+    mv /var/lib/docker "$BASE_DIR/var/lib/"
+    ln -s "$BASE_DIR/var/lib/docker" /var/lib/docker
+elif [ ! -e /var/lib/docker ]; then
+    mkdir -p "$BASE_DIR/var/lib/docker"
+    ln -s "$BASE_DIR/var/lib/docker" /var/lib/docker
+fi
+
+# Move config
+echo "Relocating CasaOS config..."
+if [ -d /etc/casaos ] && [ ! -L /etc/casaos ]; then
+    mv /etc/casaos "$BASE_DIR/etc/"
+    ln -s "$BASE_DIR/etc/casaos" /etc/casaos
+elif [ ! -e /etc/casaos ]; then
+    mkdir -p "$BASE_DIR/etc/casaos"
+    ln -s "$BASE_DIR/etc/casaos" /etc/casaos
+fi
+
+# Update Docker daemon config
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << CONFEOF
+{
+  "data-root": "$BASE_DIR/var/lib/docker",
+  "storage-driver": "overlay2"
+}
+CONFEOF
+
+# Save relocation info
+cat > "$BASE_DIR/casaos-relocation.conf" << CONFEOF
+# CasaOS Installation Relocation
+# Base directory: $BASE_DIR
+# Relocated on: $(date)
+
+BASE_DIR=$BASE_DIR
+BINARIES=$BASE_DIR/usr/bin
+DATA=$BASE_DIR/var/lib/casaos
+DOCKER=$BASE_DIR/var/lib/docker
+CONFIG=$BASE_DIR/etc/casaos
+CONFEOF
+
+echo ""
+echo "✅ CasaOS installation relocated to: $BASE_DIR"
+echo ""
+echo "Start services:"
+echo "  service docker start"
+echo "  service casaos-message-bus start"
+echo "  service casaos-gateway start"
+echo "  service casaos-user-service start"
+echo "  service casaos-local-storage start"
+echo "  service casaos-app-management start"
+echo "  service casaos start"
